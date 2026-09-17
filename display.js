@@ -12,10 +12,12 @@ const ARGS_CHROMIUM = [
   '--disable-session-crashed-bubble',
   '--disable-features=TranslateUI',
   '--kiosk',
+  '--always-on-top',
 ];
 
 const ARGS_VLC_BASE = [
   '--fullscreen',
+  '--video-on-top',
   '--no-osd',
   '--no-video-title-show',
   '--no-repeat',
