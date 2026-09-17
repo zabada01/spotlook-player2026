@@ -1,10 +1,14 @@
-const { spawn } = require('child_process');
-const path       = require('path');
-const config     = require('./config');
-const cache      = require('./cache');
-const logger     = require('./logger');
+const { spawn, spawnSync } = require('child_process');
+const path   = require('path');
+const config = require('./config');
+const cache  = require('./cache');
+const logger = require('./logger');
 
 let processusActuel = null;
+
+// Profil Chrome dédié au player — isole le player du Chrome normal de l'utilisateur
+// et garantit que --kiosk s'applique à chaque lancement (pas de réutilisation d'instance)
+const CHROME_PROFILE_DIR = path.join(__dirname, 'chrome-profile');
 
 const ARGS_CHROMIUM = [
   '--noerrdialogs',
@@ -13,6 +17,7 @@ const ARGS_CHROMIUM = [
   '--disable-features=TranslateUI',
   '--kiosk',
   '--always-on-top',
+  `--user-data-dir=${CHROME_PROFILE_DIR}`,
 ];
 
 const ARGS_VLC_BASE = [
@@ -26,7 +31,14 @@ const ARGS_VLC_BASE = [
 
 function tuerProcessusActuel() {
   if (processusActuel) {
-    try { processusActuel.kill('SIGKILL'); } catch { /* ignore */ }
+    try {
+      if (config.plateforme === 'windows' && processusActuel.pid) {
+        // taskkill /T tue le processus ET tous ses enfants (Chrome crée des sous-processus)
+        spawnSync('taskkill', ['/F', '/PID', String(processusActuel.pid), '/T'], { stdio: 'ignore' });
+      } else {
+        processusActuel.kill('SIGKILL');
+      }
+    } catch { /* ignore */ }
     processusActuel = null;
   }
 }
@@ -47,36 +59,25 @@ function lancerProcessus(commande, args) {
 
 function afficherImage(filename) {
   const fichier = cache.cheminMedia(filename);
-  const urlFichier = `file://${fichier}`;
-
-  lancerProcessus(config.chromiumPath, [
-    ...ARGS_CHROMIUM,
-    urlFichier,
-  ]);
+  lancerProcessus(config.chromiumPath, [...ARGS_CHROMIUM, `file://${fichier}`]);
 }
 
 function afficherVideo(filename) {
   const fichier = cache.cheminMedia(filename);
-
   const argsVlc = config.plateforme === 'windows'
     ? [...ARGS_VLC_BASE, '--qt-fullscreen-screennumber=0', fichier]
     : [...ARGS_VLC_BASE, fichier];
-
   lancerProcessus(config.vlcPath, argsVlc);
 }
 
 function afficherUrl(url) {
-  lancerProcessus(config.chromiumPath, [
-    ...ARGS_CHROMIUM,
-    url,
-  ]);
+  lancerProcessus(config.chromiumPath, [...ARGS_CHROMIUM, url]);
 }
 
 function afficherPanne() {
   tuerProcessusActuel();
-  const fichierPanne = path.join(__dirname, 'panne.htm');
-  const urlPanne = `file://${fichierPanne}`;
-  logger.warn(`Affichage page de panne : ${fichierPanne}`);
+  const urlPanne = `file://${path.join(__dirname, 'panne.htm')}`;
+  logger.warn(`Affichage page de panne : ${urlPanne}`);
   lancerProcessus(config.chromiumPath, [...ARGS_CHROMIUM, urlPanne]);
 }
 
@@ -90,7 +91,6 @@ function afficherMedia(item) {
     case 'video': afficherVideo(filename); break;
     case 'url':   afficherUrl(url);        break;
     case 'text':
-      // Affiche le texte dans une page HTML minimale via Chromium
       afficherUrl(`data:text/html,<html style="background:#000;display:flex;align-items:center;justify-content:center;height:100vh"><p style="color:#fff;font-size:48px;font-family:sans-serif;text-align:center">${encodeURIComponent(url)}</p></html>`);
       break;
     default:
@@ -101,7 +101,6 @@ function afficherMedia(item) {
 function afficherEcranAttente() {
   tuerProcessusActuel();
   logger.info('Aucun contenu à diffuser — écran en attente');
-  // Lance Chromium sur une page d'attente locale
   lancerProcessus(config.chromiumPath, [
     ...ARGS_CHROMIUM,
     'data:text/html,<html style="background:#1e293b;display:flex;align-items:center;justify-content:center;height:100vh"><p style="color:#64748b;font-size:32px;font-family:sans-serif">En attente de contenu…</p></html>',
