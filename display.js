@@ -1,5 +1,7 @@
 const { spawn, spawnSync } = require('child_process');
 const path   = require('path');
+const fs     = require('fs');
+const os     = require('os');
 const config = require('./config');
 const cache  = require('./cache');
 const logger = require('./logger');
@@ -81,6 +83,22 @@ function afficherPanne() {
   lancerProcessus(config.chromiumPath, [...ARGS_CHROMIUM, urlPanne]);
 }
 
+function afficherTexte(texte) {
+  const escaped = texte
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#000;display:flex;align-items:center;justify-content:center}
+p{color:#fff;font-size:64px;font-family:sans-serif;text-align:center;padding:60px;line-height:1.4;max-width:1400px}
+</style></head><body><p>${escaped}</p></body></html>`;
+  const tmpFile = path.join(os.tmpdir(), 'spotlook-text.html');
+  fs.writeFileSync(tmpFile, html, 'utf8');
+  lancerProcessus(config.chromiumPath, [...ARGS_CHROMIUM, `file://${tmpFile}`]);
+}
+
 function afficherMedia(item) {
   const { type, filename, url } = item.media;
 
@@ -90,9 +108,7 @@ function afficherMedia(item) {
     case 'image': afficherImage(filename); break;
     case 'video': afficherVideo(filename); break;
     case 'url':   afficherUrl(url);        break;
-    case 'text':
-      afficherUrl(`data:text/html,<html style="background:#000;display:flex;align-items:center;justify-content:center;height:100vh"><p style="color:#fff;font-size:48px;font-family:sans-serif;text-align:center">${encodeURIComponent(url)}</p></html>`);
-      break;
+    case 'text':  afficherTexte(url);      break;
     default:
       logger.warn(`Type de média inconnu : ${type}`);
   }
@@ -101,10 +117,15 @@ function afficherMedia(item) {
 function afficherEcranAttente() {
   tuerProcessusActuel();
   logger.info('Aucun contenu à diffuser — écran en attente');
-  lancerProcessus(config.chromiumPath, [
-    ...ARGS_CHROMIUM,
-    'data:text/html,<html style="background:#1e293b;display:flex;align-items:center;justify-content:center;height:100vh"><p style="color:#64748b;font-size:32px;font-family:sans-serif">En attente de contenu…</p></html>',
-  ]);
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#1e293b;display:flex;align-items:center;justify-content:center}
+p{color:#64748b;font-size:32px;font-family:sans-serif}
+</style></head><body><p>En attente de contenu…</p></body></html>`;
+  const tmpFile = path.join(os.tmpdir(), 'spotlook-attente.html');
+  fs.writeFileSync(tmpFile, html, 'utf8');
+  lancerProcessus(config.chromiumPath, [...ARGS_CHROMIUM, `file://${tmpFile}`]);
 }
 
 module.exports = { afficherMedia, afficherEcranAttente, afficherPanne, tuerProcessusActuel };
