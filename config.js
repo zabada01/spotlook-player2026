@@ -36,6 +36,11 @@ const config = {
   vlcPath:             CHEMINS_VLC[plateforme],
   logLevel:            process.env.LOG_LEVEL || 'info',
   reconnectIntervalMs: parseInt(process.env.RECONNECT_INTERVAL_S || '60') * 1000,
+  texte: {
+    fond:       process.env.TEXT_BG_COLOR    || '#000000',
+    couleur:    process.env.TEXT_COLOR       || '#ffffff',
+    taillePx:   parseInt(process.env.TEXT_FONT_SIZE_PX || '64'),
+  },
 };
 
 if (!config.screenToken) {

@@ -88,11 +88,12 @@ function afficherTexte(texte) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+  const { fond, couleur, taillePx } = config.texte;
   const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;background:#000;display:flex;align-items:center;justify-content:center}
-p{color:#fff;font-size:64px;font-family:sans-serif;text-align:center;padding:60px;line-height:1.4;max-width:1400px}
+html,body{width:100%;height:100%;background:${fond};display:flex;align-items:center;justify-content:center}
+p{color:${couleur};font-size:${taillePx}px;font-family:sans-serif;text-align:center;padding:60px;line-height:1.4;max-width:1400px}
 </style></head><body><p>${escaped}</p></body></html>`;
   const tmpFile = path.join(os.tmpdir(), 'spotlook-text.html');
   fs.writeFileSync(tmpFile, html, 'utf8');
