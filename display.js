@@ -72,6 +72,14 @@ function afficherUrl(url) {
   ]);
 }
 
+function afficherPanne() {
+  tuerProcessusActuel();
+  const fichierPanne = path.join(__dirname, 'panne.htm');
+  const urlPanne = `file://${fichierPanne}`;
+  logger.warn(`Affichage page de panne : ${fichierPanne}`);
+  lancerProcessus(config.chromiumPath, [...ARGS_CHROMIUM, urlPanne]);
+}
+
 function afficherMedia(item) {
   const { type, filename, url } = item.media;
 
@@ -100,4 +108,4 @@ function afficherEcranAttente() {
   ]);
 }
 
-module.exports = { afficherMedia, afficherEcranAttente, tuerProcessusActuel };
+module.exports = { afficherMedia, afficherEcranAttente, afficherPanne, tuerProcessusActuel };

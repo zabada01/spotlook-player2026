@@ -16,16 +16,19 @@ const sync    = require('./sync');
 const display = require('./display');
 const ws      = require('./ws');
 const logger  = require('./logger');
+const config  = require('./config');
 
 const INTERVALLE_HEARTBEAT_MS = 60_000;
 const INTERVALLE_SYNC_MS      = 5 * 60_000;
 const DELAI_ATTENTE_MS        = 30_000;
 
-let itemsActifs   = [];
-let indexActuel   = 0;
-let timerItem     = null;
-let syncEnCours   = false;
-let contenuActuel = null;
+let itemsActifs      = [];
+let indexActuel      = 0;
+let timerItem        = null;
+let syncEnCours      = false;
+let contenuActuel    = null;
+let serveurJoignable = true;
+let timerRetry       = null;
 
 async function demarrer() {
   logger.info('=== Spotlook Player démarré ===');
@@ -55,13 +58,25 @@ async function synchroniser() {
     let data;
     try {
       data = await sync.obtenirSchedule();
+
+      if (!serveurJoignable) {
+        logger.info('Serveur à nouveau joignable — reprise normale');
+        serveurJoignable = true;
+        arreterRetry();
+      }
     } catch (err) {
       logger.warn(`Serveur inaccessible : ${err.message}`);
+
       if (cache.scheduleValide()) {
         logger.info('Mode hors-ligne — utilisation du cache local');
         data = cache.chargerSchedule();
       } else {
-        logger.warn('Aucun cache valide disponible');
+        if (serveurJoignable) {
+          logger.warn('Aucun cache valide — affichage page de panne');
+          serveurJoignable = false;
+          display.afficherPanne();
+        }
+        demarrerRetry();
         itemsActifs = [];
         return;
       }
@@ -73,6 +88,23 @@ async function synchroniser() {
     logger.error(`Erreur synchronisation : ${err.message}`);
   } finally {
     syncEnCours = false;
+  }
+}
+
+function demarrerRetry() {
+  if (timerRetry) return;
+  logger.info(`Reconnexion automatique toutes les ${config.reconnectIntervalMs / 1000}s`);
+  timerRetry = setInterval(async () => {
+    logger.info('Tentative de reconnexion au serveur…');
+    await synchroniser();
+    if (serveurJoignable) relancerBoucle();
+  }, config.reconnectIntervalMs);
+}
+
+function arreterRetry() {
+  if (timerRetry) {
+    clearInterval(timerRetry);
+    timerRetry = null;
   }
 }
 

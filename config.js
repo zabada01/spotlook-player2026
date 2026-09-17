@@ -28,13 +28,14 @@ const CHEMINS_VLC = {
 };
 
 const config = {
-  serverUrl:    (process.env.SERVER_URL || 'http://localhost:3000').replace(/\/$/, ''),
-  screenToken:  process.env.SCREEN_TOKEN || '',
-  cacheDir:     process.env.CACHE_DIR || '/cache/spotlook',
+  serverUrl:           (process.env.SERVER_URL || 'http://localhost:3000').replace(/\/$/, ''),
+  screenToken:         process.env.SCREEN_TOKEN || '',
+  cacheDir:            process.env.CACHE_DIR || '/cache/spotlook',
   plateforme,
-  chromiumPath: CHEMINS_CHROMIUM[plateforme],
-  vlcPath:      CHEMINS_VLC[plateforme],
-  logLevel:     process.env.LOG_LEVEL || 'info',
+  chromiumPath:        CHEMINS_CHROMIUM[plateforme],
+  vlcPath:             CHEMINS_VLC[plateforme],
+  logLevel:            process.env.LOG_LEVEL || 'info',
+  reconnectIntervalMs: parseInt(process.env.RECONNECT_INTERVAL_S || '60') * 1000,
 };
 
 if (!config.screenToken) {
