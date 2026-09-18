@@ -1,4 +1,4 @@
-const { spawn, spawnSync } = require('child_process');
+const { spawn, spawnSync, execFileSync } = require('child_process');
 const path   = require('path');
 const fs     = require('fs');
 const os     = require('os');
@@ -64,8 +64,19 @@ function afficherImage(filename) {
   lancerProcessus(config.chromiumPath, [...ARGS_CHROMIUM, `file://${fichier}`]);
 }
 
+// Cas particulier : Node tourne dans WSL mais pointe vers un VLC Windows (VLC_PATH en .exe) —
+// VLC ne comprend pas les chemins Linux, il faut les traduire en chemin Windows/UNC.
+function traduireCheminSiVlcWindows(fichier) {
+  if (!config.vlcPath.toLowerCase().endsWith('.exe')) return fichier;
+  try {
+    return execFileSync('wslpath', ['-w', fichier]).toString().trim();
+  } catch {
+    return fichier; // pas dans WSL / wslpath indisponible — on retente tel quel
+  }
+}
+
 function afficherVideo(filename) {
-  const fichier = cache.cheminMedia(filename);
+  const fichier = traduireCheminSiVlcWindows(cache.cheminMedia(filename));
   const argsVlc = config.plateforme === 'windows'
     ? [...ARGS_VLC_BASE, '--qt-fullscreen-screennumber=0', fichier]
     : [...ARGS_VLC_BASE, fichier];

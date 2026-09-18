@@ -84,13 +84,19 @@ async function envoyerHeartbeat(status = 'online', contenuActuel = null) {
   }
 }
 
+// Seuls image/video correspondent à un fichier réellement stocké côté serveur —
+// url/text ne sont que du texte/lien en base, rien à télécharger.
+const TYPES_TELECHARGEABLES = new Set(['image', 'video']);
+
 async function synchroniserMedias(items) {
-  const filenamesActifs = items.map((i) => i.media.filename);
+  const itemsFichiers = items.filter((i) => TYPES_TELECHARGEABLES.has(i.media.type));
+
+  const filenamesActifs = itemsFichiers.map((i) => i.media.filename);
   const nbNettoyes = cache.nettoyerMediasObsoletes(filenamesActifs);
   if (nbNettoyes > 0) logger.info(`Cache nettoyé : ${nbNettoyes} média(s) obsolète(s)`);
 
   let nbTelecharges = 0;
-  for (const item of items) {
+  for (const item of itemsFichiers) {
     const { id, filename } = item.media;
     if (!cache.mediaExiste(filename)) {
       logger.info(`Téléchargement : ${filename}`);
