@@ -46,6 +46,8 @@ const ARGS_CHROMIUM_BASE = [
 ];
 
 const ARGS_VLC_BASE = [
+  '--intf=dummy',       // pas d'interface Qt du tout — supprime le flash de menu/barre d'outils au lancement
+  '--no-video-deco',    // pas de bordure/barre de titre sur la fenêtre vidéo
   '--fullscreen',
   '--video-on-top',
   '--no-osd',
@@ -174,9 +176,7 @@ function tuerVlc() {
 function afficherVideo(filename) {
   tuerVlc();
   const fichier = cheminPourVlc(cache.cheminMedia(filename));
-  const argsVlc = config.plateforme === 'windows'
-    ? [...ARGS_VLC_BASE, '--qt-fullscreen-screennumber=0', fichier]
-    : [...ARGS_VLC_BASE, fichier];
+  const argsVlc = [...ARGS_VLC_BASE, fichier];
 
   logger.debug(`Lancement : ${config.vlcPath} ${argsVlc.join(' ')}`);
   descripteurVlc = lancerExecutable(config.vlcPath, argsVlc);
