@@ -33,6 +33,7 @@ let timerRetry       = null;
 async function demarrer() {
   logger.info('=== Spotlook Player démarré ===');
   cache.initialiser();
+  display.initialiser();
 
   await synchroniser();
 

@@ -35,6 +35,7 @@ const config = {
   chromiumPath:        CHEMINS_CHROMIUM[plateforme],
   vlcPath:             CHEMINS_VLC[plateforme],
   logLevel:            process.env.LOG_LEVEL || 'info',
+  chromiumDebugPort:   parseInt(process.env.CHROMIUM_DEBUG_PORT || '9333'),
   reconnectIntervalMs: parseInt(process.env.RECONNECT_INTERVAL_S || '60') * 1000,
   texte: {
     fond:       process.env.TEXT_BG_COLOR    || '#000000',
