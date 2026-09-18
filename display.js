@@ -40,6 +40,7 @@ const ARGS_CHROMIUM_BASE = [
   '--disable-features=TranslateUI',
   '--kiosk',
   '--always-on-top',
+  '--hide-scrollbars',
 ];
 
 const ARGS_VLC_BASE = [
