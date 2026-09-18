@@ -1,5 +1,6 @@
 const { spawn, spawnSync, execFileSync } = require('child_process');
 const http   = require('http');
+const https  = require('https');
 const path   = require('path');
 const fs     = require('fs');
 const os     = require('os');
@@ -337,7 +338,31 @@ function afficherImage(filename) {
   return afficherDansChromium(urlFichierPourChromium(fichier));
 }
 
-function afficherUrl(url) {
+// Vérifie l'accessibilité réseau de l'URL avant navigation — évite d'afficher
+// la page d'erreur native de Chromium (le petit dinosaure) en cas de coupure
+// internet. N'importe quelle réponse HTTP compte comme "joignable" : seule une
+// vraie erreur réseau (DNS, connexion refusée, timeout) est considérée en panne.
+function urlJoignable(url, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    let cible;
+    try { cible = new URL(url); } catch { return resolve(false); }
+
+    const lib = cible.protocol === 'https:' ? https : http;
+    const req = lib.request(url, { method: 'HEAD', timeout: timeoutMs }, (res) => {
+      res.resume();
+      resolve(true);
+    });
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.on('error', () => resolve(false));
+    req.end();
+  });
+}
+
+async function afficherUrl(url) {
+  if (!(await urlJoignable(url))) {
+    logger.warn(`URL injoignable — affichage page de panne à la place : ${url}`);
+    return afficherPanne();
+  }
   return afficherDansChromium(url);
 }
 
