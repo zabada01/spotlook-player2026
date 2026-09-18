@@ -39,6 +39,7 @@ const ARGS_CHROMIUM_BASE = [
   '--disable-session-crashed-bubble',
   '--disable-features=TranslateUI',
   '--kiosk',
+  '--start-fullscreen',
   '--always-on-top',
   '--hide-scrollbars',
 ];
@@ -183,12 +184,21 @@ function afficherVideo(filename) {
 // ── Chromium — mode A : fenêtre persistante pilotée via CDP ─────────────
 // (RPi natif, Windows natif — CDP joignable en 127.0.0.1 sans restriction)
 
+// about:blank se comporte parfois différemment des vraies pages sous --kiosk
+// (fenêtre pas toujours passée en plein écran) — on démarre donc sur une page
+// HTML locale plutôt que sur la page interne de Chromium.
+function pageDemarrage() {
+  const tmpFile = path.join(os.tmpdir(), 'spotlook-demarrage.html');
+  fs.writeFileSync(tmpFile, '<!DOCTYPE html><html><body style="background:#1e293b;margin:0"></body></html>', 'utf8');
+  return urlFichierPourChromium(tmpFile);
+}
+
 function lancerChromiumPersistant() {
   const args = [
     ...ARGS_CHROMIUM_BASE,
     `--user-data-dir=${dossierProfilChromium()}`,
     `--remote-debugging-port=${config.chromiumDebugPort}`,
-    'about:blank',
+    pageDemarrage(),
   ];
 
   logger.debug(`Lancement Chromium (persistant) : ${config.chromiumPath} ${args.join(' ')}`);
