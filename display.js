@@ -12,14 +12,13 @@ let processusActuel = null;
 // et garantit que --kiosk s'applique à chaque lancement (pas de réutilisation d'instance)
 const CHROME_PROFILE_DIR = path.join(__dirname, 'chrome-profile');
 
-const ARGS_CHROMIUM = [
+const ARGS_CHROMIUM_BASE = [
   '--noerrdialogs',
   '--disable-infobars',
   '--disable-session-crashed-bubble',
   '--disable-features=TranslateUI',
   '--kiosk',
   '--always-on-top',
-  `--user-data-dir=${CHROME_PROFILE_DIR}`,
 ];
 
 const ARGS_VLC_BASE = [
@@ -59,24 +58,71 @@ function lancerProcessus(commande, args) {
   return proc;
 }
 
-function afficherImage(filename) {
-  const fichier = cache.cheminMedia(filename);
-  lancerProcessus(config.chromiumPath, [...ARGS_CHROMIUM, `file://${fichier}`]);
+// Cas particulier : Node tourne dans WSL mais pointe vers un binaire Windows (chemin en
+// .exe) — ni VLC ni Chromium ne comprennent les chemins Linux, il faut les traduire.
+function estExecutableWindows(chemin) {
+  return chemin.toLowerCase().endsWith('.exe');
 }
 
-// Cas particulier : Node tourne dans WSL mais pointe vers un VLC Windows (VLC_PATH en .exe) —
-// VLC ne comprend pas les chemins Linux, il faut les traduire en chemin Windows/UNC.
-function traduireCheminSiVlcWindows(fichier) {
-  if (!config.vlcPath.toLowerCase().endsWith('.exe')) return fichier;
+function traduireCheminWindows(cheminWsl) {
   try {
-    return execFileSync('wslpath', ['-w', fichier]).toString().trim();
+    return execFileSync('wslpath', ['-w', cheminWsl]).toString().trim();
   } catch {
-    return fichier; // pas dans WSL / wslpath indisponible — on retente tel quel
+    return null; // pas dans WSL / wslpath indisponible
   }
 }
 
+function cheminPourVlc(fichier) {
+  if (!estExecutableWindows(config.vlcPath)) return fichier;
+  return traduireCheminWindows(fichier) || fichier;
+}
+
+// Chrome tournant côté Windows refuse un --user-data-dir en chemin Linux (ou UNC) — il
+// lui faut un vrai chemin Windows local, sous peine de retomber sur le profil par défaut
+// de l'utilisateur (et donc de rouvrir un onglet dans sa fenêtre Chrome existante au lieu
+// de lancer une instance kiosque dédiée).
+let dossierProfilChromiumCache = null;
+function dossierProfilChromium() {
+  if (dossierProfilChromiumCache) return dossierProfilChromiumCache;
+
+  if (!estExecutableWindows(config.chromiumPath)) {
+    dossierProfilChromiumCache = CHROME_PROFILE_DIR;
+    return dossierProfilChromiumCache;
+  }
+
+  try {
+    const tempWindows = execFileSync('cmd.exe', ['/c', 'echo %TEMP%']).toString().trim();
+    dossierProfilChromiumCache = `${tempWindows}\\spotlook-chrome-profile`;
+  } catch {
+    logger.warn('Impossible de résoudre un répertoire de profil Windows pour Chromium — repli sur le chemin local');
+    dossierProfilChromiumCache = CHROME_PROFILE_DIR;
+  }
+  return dossierProfilChromiumCache;
+}
+
+function argsChromium() {
+  return [...ARGS_CHROMIUM_BASE, `--user-data-dir=${dossierProfilChromium()}`];
+}
+
+// Construit une URL file:// utilisable par le navigateur ciblé, en tenant compte du
+// format Windows/UNC (file:///C:/... ou file://serveur/partage/...) si nécessaire.
+function urlFichierPourChromium(fichier) {
+  if (!estExecutableWindows(config.chromiumPath)) return `file://${fichier}`;
+
+  const cheminWindows = traduireCheminWindows(fichier);
+  if (!cheminWindows) return `file://${fichier}`;
+
+  const barres = cheminWindows.replace(/\\/g, '/');
+  return barres.startsWith('//') ? `file:${barres}` : `file:///${barres}`;
+}
+
+function afficherImage(filename) {
+  const fichier = cache.cheminMedia(filename);
+  lancerProcessus(config.chromiumPath, [...argsChromium(), urlFichierPourChromium(fichier)]);
+}
+
 function afficherVideo(filename) {
-  const fichier = traduireCheminSiVlcWindows(cache.cheminMedia(filename));
+  const fichier = cheminPourVlc(cache.cheminMedia(filename));
   const argsVlc = config.plateforme === 'windows'
     ? [...ARGS_VLC_BASE, '--qt-fullscreen-screennumber=0', fichier]
     : [...ARGS_VLC_BASE, fichier];
@@ -84,14 +130,14 @@ function afficherVideo(filename) {
 }
 
 function afficherUrl(url) {
-  lancerProcessus(config.chromiumPath, [...ARGS_CHROMIUM, url]);
+  lancerProcessus(config.chromiumPath, [...argsChromium(), url]);
 }
 
 function afficherPanne() {
   tuerProcessusActuel();
-  const urlPanne = `file://${path.join(__dirname, 'panne.htm')}`;
+  const urlPanne = urlFichierPourChromium(path.join(__dirname, 'panne.htm'));
   logger.warn(`Affichage page de panne : ${urlPanne}`);
-  lancerProcessus(config.chromiumPath, [...ARGS_CHROMIUM, urlPanne]);
+  lancerProcessus(config.chromiumPath, [...argsChromium(), urlPanne]);
 }
 
 function afficherTexte(texte) {
@@ -108,7 +154,7 @@ p{color:${couleur};font-size:${taillePx}px;font-family:sans-serif;text-align:cen
 </style></head><body><p>${escaped}</p></body></html>`;
   const tmpFile = path.join(os.tmpdir(), 'spotlook-text.html');
   fs.writeFileSync(tmpFile, html, 'utf8');
-  lancerProcessus(config.chromiumPath, [...ARGS_CHROMIUM, `file://${tmpFile}`]);
+  lancerProcessus(config.chromiumPath, [...argsChromium(), urlFichierPourChromium(tmpFile)]);
 }
 
 function afficherMedia(item) {
@@ -137,7 +183,7 @@ p{color:#64748b;font-size:32px;font-family:sans-serif}
 </style></head><body><p>En attente de contenu…</p></body></html>`;
   const tmpFile = path.join(os.tmpdir(), 'spotlook-attente.html');
   fs.writeFileSync(tmpFile, html, 'utf8');
-  lancerProcessus(config.chromiumPath, [...ARGS_CHROMIUM, `file://${tmpFile}`]);
+  lancerProcessus(config.chromiumPath, [...argsChromium(), urlFichierPourChromium(tmpFile)]);
 }
 
 module.exports = { afficherMedia, afficherEcranAttente, afficherPanne, tuerProcessusActuel };
