@@ -15,6 +15,15 @@ $ErrorActionPreference = 'Stop'
 $dossier = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $dossier
 
+$estAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $estAdmin) {
+  Write-Warning "Cette invite PowerShell n'est pas en mode administrateur."
+  Write-Warning "La creation de la tache planifiee (etape 6) va echouer sans ce droit."
+  Write-Warning "Ferme cette fenetre et relance-la via clic droit > 'Executer en tant qu'administrateur', puis relance ce script."
+  $reponse = Read-Host "Continuer quand meme (les etapes 1 a 5 fonctionneront, pas l'etape 6) ? (o/N)"
+  if ($reponse -notmatch '^[oOyY]') { exit 1 }
+}
+
 function EcrireEtape($texte) {
   Write-Host ""
   Write-Host "==> $texte" -ForegroundColor Cyan
@@ -87,26 +96,42 @@ EcrireEtape "Configuration du lancement automatique"
 
 $nomTache = 'SpotlookPlayer'
 $vbsPath  = Join-Path $dossier 'lancer-silencieux.vbs'
+$tacheCreee = $false
 
-if (Get-ScheduledTask -TaskName $nomTache -ErrorAction SilentlyContinue) {
-  Unregister-ScheduledTask -TaskName $nomTache -Confirm:$false
+try {
+  if (Get-ScheduledTask -TaskName $nomTache -ErrorAction SilentlyContinue) {
+    Unregister-ScheduledTask -TaskName $nomTache -Confirm:$false
+  }
+
+  $action      = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "`"$vbsPath`""
+  $declencheur = New-ScheduledTaskTrigger -AtLogOn
+  $parametres  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+
+  Register-ScheduledTask -TaskName $nomTache -Action $action -Trigger $declencheur `
+    -Settings $parametres -Description "Lance le player Spotlook a l'ouverture de session" | Out-Null
+
+  $tacheCreee = $true
+  Write-Host "Tache planifiee '$nomTache' creee." -ForegroundColor Green
+  Write-Host "Le relancement automatique en cas de crash est gere par demarrer-boucle.bat (boucle avec 5s de delai)."
+} catch {
+  Write-Warning "Echec de la creation de la tache planifiee : $($_.Exception.Message)"
+  Write-Warning "Cause la plus frequente : PowerShell doit tourner en administrateur pour cette etape."
+  Write-Warning "Relance ce script via clic droit > 'Executer en tant qu'administrateur' pour activer le lancement automatique."
 }
 
-$action      = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "`"$vbsPath`""
-$declencheur = New-ScheduledTaskTrigger -AtLogOn
-$parametres  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-
-Register-ScheduledTask -TaskName $nomTache -Action $action -Trigger $declencheur `
-  -Settings $parametres -Description "Lance le player Spotlook a l'ouverture de session" | Out-Null
-
-Write-Host "Tache planifiee '$nomTache' creee." -ForegroundColor Green
-Write-Host "Le relancement automatique en cas de crash est gere par demarrer-boucle.bat (boucle avec 5s de delai)."
-
 # --- 7. Lancement immediat ----------------------------------------------------
-$reponse = Read-Host "`nLancer le player maintenant ? (o/N)"
-if ($reponse -match '^[oOyY]') {
-  Start-ScheduledTask -TaskName $nomTache
-  Write-Host "Player lance - les logs s'ecrivent dans player.log" -ForegroundColor Green
+if ($tacheCreee) {
+  $reponse = Read-Host "`nLancer le player maintenant ? (o/N)"
+  if ($reponse -match '^[oOyY]') {
+    Start-ScheduledTask -TaskName $nomTache
+    Write-Host "Player lance - les logs s'ecrivent dans player.log" -ForegroundColor Green
+  }
+} else {
+  $reponse = Read-Host "`nLancer le player maintenant sans lancement automatique (test ponctuel) ? (o/N)"
+  if ($reponse -match '^[oOyY]') {
+    Start-Process -FilePath 'wscript.exe' -ArgumentList "`"$vbsPath`""
+    Write-Host "Player lance - les logs s'ecrivent dans player.log" -ForegroundColor Green
+  }
 }
 
 Write-Host ""
