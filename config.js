@@ -1,5 +1,6 @@
 require('dotenv').config();
 const os = require('os');
+const { version: playerVersion } = require('./package.json');
 
 function detecterPlateforme() {
   const env = (process.env.PLATFORM || 'auto').toLowerCase();
@@ -30,6 +31,7 @@ const CHEMINS_VLC = {
 const config = {
   serverUrl:           (process.env.SERVER_URL || 'http://localhost:3000').replace(/\/$/, ''),
   screenToken:         process.env.SCREEN_TOKEN || '',
+  playerVersion,
   cacheDir:            process.env.CACHE_DIR || '/cache/spotlook',
   plateforme,
   chromiumPath:        CHEMINS_CHROMIUM[plateforme],

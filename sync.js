@@ -76,7 +76,7 @@ async function envoyerHeartbeat(status = 'online', contenuActuel = null) {
   try {
     await requete(`${config.serverUrl}/api/player/heartbeat`, {
       method: 'POST',
-      body: { status, contenuActuel },
+      body: { status, contenuActuel, playerVersion: config.playerVersion },
     });
     logger.debug(`Heartbeat : ${status}`);
   } catch (err) {
