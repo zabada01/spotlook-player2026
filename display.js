@@ -443,6 +443,23 @@ p{color:#64748b;font-size:32px;font-family:sans-serif}
   }
 }
 
+// Heure de veille programmée (portail > groupe d'écrans) : écran noir pur, sans
+// VLC — évite tout risque lié à l'accélération vidéo pendant cette période.
+async function afficherVeille() {
+  tuerVlc();
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+html,body{width:100%;height:100%;margin:0;background:#000}
+</style></head><body></body></html>`;
+  const tmpFile = path.join(os.tmpdir(), 'spotlook-veille.html');
+  fs.writeFileSync(tmpFile, html, 'utf8');
+  try {
+    await afficherDansChromium(urlFichierPourChromium(tmpFile));
+  } catch (err) {
+    logger.error(`Erreur affichage écran de veille : ${err.message}`);
+  }
+}
+
 // Prépare Chromium dès le démarrage du player (mode persistant uniquement — en mode
 // relance il n'y a rien à préchauffer, chaque média relance son propre process).
 function initialiser() {
@@ -457,4 +474,4 @@ function tuerProcessusActuel() {
   descripteurChromium = null;
 }
 
-module.exports = { initialiser, afficherMedia, afficherEcranAttente, afficherPanne, tuerProcessusActuel };
+module.exports = { initialiser, afficherMedia, afficherEcranAttente, afficherVeille, afficherPanne, tuerProcessusActuel };

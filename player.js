@@ -23,6 +23,7 @@ const INTERVALLE_SYNC_MS      = 5 * 60_000;
 const DELAI_ATTENTE_MS        = 30_000;
 
 let itemsActifs      = [];
+let enVeilleActuel   = false;
 let indexActuel      = 0;
 let timerItem        = null;
 let syncEnCours      = false;
@@ -79,11 +80,13 @@ async function synchroniser() {
         }
         demarrerRetry();
         itemsActifs = [];
+        enVeilleActuel = false;
         return;
       }
     }
 
     itemsActifs = data?.items || [];
+    enVeilleActuel = data?.enVeille || false;
     if (itemsActifs.length > 0) await sync.synchroniserMedias(itemsActifs);
   } catch (err) {
     logger.error(`Erreur synchronisation : ${err.message}`);
@@ -116,6 +119,13 @@ function relancerBoucle() {
 }
 
 function diffuserProchain() {
+  if (enVeilleActuel) {
+    display.afficherVeille();
+    contenuActuel = null;
+    timerItem = setTimeout(diffuserProchain, DELAI_ATTENTE_MS);
+    return;
+  }
+
   if (!itemsActifs.length) {
     display.afficherEcranAttente();
     timerItem = setTimeout(diffuserProchain, DELAI_ATTENTE_MS);
