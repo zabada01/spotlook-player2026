@@ -171,6 +171,16 @@ function dossierProfilChromium() {
 function tuerVlc() {
   descripteurVlc?.tuer();
   descripteurVlc = null;
+
+  // Balayage large en plus du kill cible : si VLC a crashe, sa fenetre "crash
+  // reporting" (un process a part, jamais suivi par descripteurVlc) resterait
+  // sinon ouverte indefiniment et s'empilerait a chaque relance suivante.
+  // Sans risque sur une machine kiosque dediee (pas d'autre VLC legitime).
+  if (estExecutableWindows(config.vlcPath) || config.plateforme === 'windows') {
+    try { spawnSync('taskkill.exe', ['/F', '/IM', 'vlc.exe', '/T'], { stdio: 'ignore' }); } catch { /* ignore */ }
+  } else {
+    try { spawnSync('pkill', ['-9', '-f', 'vlc'], { stdio: 'ignore' }); } catch { /* ignore */ }
+  }
 }
 
 function afficherVideo(filename) {
