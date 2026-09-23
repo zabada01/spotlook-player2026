@@ -25,6 +25,9 @@ const logger = require('./logger');
 
 let descripteurChromium = null;
 let descripteurVlc      = null;
+// Dernière URL affichée dans Chromium (null si inconnue, ex. après une relance) —
+// permet de ne pas recharger inutilement la page d'attente toutes les 30s.
+let urlChromiumAffichee = null;
 let cdpWs          = null;
 let cdpCibleId     = null;
 let cdpProchainId  = 1;
@@ -217,6 +220,7 @@ function lancerChromiumPersistant() {
     onExit: (code) => {
       logger.warn(`Chromium terminé (code=${code}) — relance dans 2s…`);
       descripteurChromium = null;
+      urlChromiumAffichee = null;
       fermerCdp();
       setTimeout(garantirChromiumDemarre, 2000);
     },
@@ -313,7 +317,9 @@ function cdpEnvoyer(method, params = {}) {
 async function naviguerChromiumPersistant(url) {
   garantirChromiumDemarre();
   try {
+    urlChromiumAffichee = null;
     await cdpEnvoyer('Page.navigate', { url });
+    urlChromiumAffichee = url;
     if (cdpCibleId) await cdpEnvoyer('Target.activateTarget', { targetId: cdpCibleId });
   } catch (err) {
     logger.warn(`Erreur navigation Chromium (${url}) : ${err.message}`);
@@ -329,6 +335,7 @@ function afficherChromiumParRelance(url) {
 
   logger.debug(`Lancement : ${config.chromiumPath} ${args.join(' ')}`);
   descripteurChromium = lancerExecutable(config.chromiumPath, args);
+  urlChromiumAffichee = url;
 }
 
 // ── Dispatch selon le mode ────────────────────────────────────────────────
@@ -425,19 +432,16 @@ async function afficherMedia(item) {
   }
 }
 
+// Aucun créneau planifié : même page que la panne (panne.htm, personnalisable
+// localement). Pas de rechargement si elle est déjà affichée — la boucle rappelle
+// cette fonction toutes les 30s et relancerait les animations de la page.
 async function afficherEcranAttente() {
   tuerVlc();
-  logger.info('Aucun contenu à diffuser — écran en attente');
-  const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><style>
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;background:#1e293b;display:flex;align-items:center;justify-content:center}
-p{color:#64748b;font-size:32px;font-family:sans-serif}
-</style></head><body><p>En attente de contenu…</p></body></html>`;
-  const tmpFile = path.join(os.tmpdir(), 'spotlook-attente.html');
-  fs.writeFileSync(tmpFile, html, 'utf8');
+  const urlPanne = urlFichierPourChromium(path.join(__dirname, 'panne.htm'));
+  if (urlChromiumAffichee === urlPanne) return;
+  logger.info('Aucun contenu à diffuser — affichage de panne.htm');
   try {
-    await afficherDansChromium(urlFichierPourChromium(tmpFile));
+    await afficherDansChromium(urlPanne);
   } catch (err) {
     logger.error(`Erreur affichage écran d'attente : ${err.message}`);
   }
