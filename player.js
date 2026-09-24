@@ -17,6 +17,7 @@ const display = require('./display');
 const ws      = require('./ws');
 const logger  = require('./logger');
 const config  = require('./config');
+const { spawn } = require('child_process');
 
 const INTERVALLE_HEARTBEAT_MS = 60_000;
 const INTERVALLE_SYNC_MS      = 5 * 60_000;
@@ -42,7 +43,7 @@ async function demarrer() {
     logger.info('Mise à jour WS reçue — re-synchronisation…');
     await synchroniser();
     relancerBoucle();
-  });
+  }, { redemarrer: redemarrerPC });
 
   setInterval(envoyerHeartbeat, INTERVALLE_HEARTBEAT_MS);
 
@@ -95,6 +96,35 @@ async function synchroniser() {
   } finally {
     syncEnCours = false;
   }
+}
+
+// Redémarrage du PC demandé depuis le portail (Écrans > Redémarrer). Windows
+// uniquement : "shutdown /r" ne demande pas de droits administrateur pour
+// l'utilisateur connecté. Au redémarrage, la tâche planifiée relance le player
+// (ouverture de session automatique requise, cf. install-windows.ps1).
+let redemarrageEnCours = false;
+
+function redemarrerPC() {
+  if (redemarrageEnCours) return;
+  if (config.plateforme !== 'windows') {
+    logger.warn(`Redémarrage à distance non pris en charge sur cette plateforme (${config.plateforme}) — ignoré`);
+    return;
+  }
+  redemarrageEnCours = true;
+  logger.warn('Redémarrage du PC dans 10 secondes…');
+  const proc = spawn('shutdown', ['/r', '/t', '10', '/f', '/c', 'Redémarrage demandé depuis le portail Spotlook'], {
+    stdio: 'ignore', windowsHide: true,
+  });
+  proc.on('error', (err) => {
+    redemarrageEnCours = false;
+    logger.error(`Échec du redémarrage : ${err.message}`);
+  });
+  proc.on('exit', (code) => {
+    if (code !== 0) {
+      redemarrageEnCours = false;
+      logger.error(`Échec du redémarrage : shutdown a retourné le code ${code}`);
+    }
+  });
 }
 
 function demarrerRetry() {

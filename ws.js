@@ -9,9 +9,11 @@ let ws             = null;
 let delaiActuel    = DELAI_RECONNEXION_MS;
 let arreter        = false;
 let onScheduleUpdate = null;
+let onRedemarrer     = null;
 
-function connecter(onMiseAJour) {
+function connecter(onMiseAJour, { redemarrer } = {}) {
   onScheduleUpdate = onMiseAJour;
+  onRedemarrer = redemarrer;
   arreter = false;
   _connecter();
 }
@@ -41,6 +43,10 @@ function _connecter() {
         case 'schedule_updated':
           logger.info(`WS — schedule_updated : action=${msg.data?.action}`);
           if (typeof onScheduleUpdate === 'function') onScheduleUpdate(msg.data);
+          break;
+        case 'redemarrer':
+          logger.warn(`WS — ordre de redémarrage reçu (demandé par ${msg.data?.demandePar || 'inconnu'})`);
+          if (typeof onRedemarrer === 'function') onRedemarrer();
           break;
         case 'connecte':
           logger.info(`WS — écran reconnu : id=${msg.data?.ecranId}`);
