@@ -87,7 +87,9 @@ async function synchroniser() {
 
     itemsActifs = data?.items || [];
     enVeilleActuel = data?.enVeille || false;
-    if (itemsActifs.length > 0) await sync.synchroniserMedias(itemsActifs);
+    // En arrière-plan : ne bloque pas les synchronisations suivantes (planning,
+    // heures de veille) pendant le téléchargement d'une grosse vidéo.
+    if (itemsActifs.length > 0) sync.lancerTelechargements(itemsActifs);
   } catch (err) {
     logger.error(`Erreur synchronisation : ${err.message}`);
   } finally {
@@ -126,13 +128,17 @@ function diffuserProchain() {
     return;
   }
 
-  if (!itemsActifs.length) {
+  // Seuls les médias entièrement téléchargés sont diffusés ; ceux en cours de
+  // téléchargement s'ajoutent à la rotation dès qu'ils sont prêts.
+  const diffusables = itemsActifs.filter(sync.estDiffusable);
+  if (!diffusables.length) {
+    if (itemsActifs.length) logger.debug('Médias du planning en cours de téléchargement — écran d\'attente');
     display.afficherEcranAttente();
     timerItem = setTimeout(diffuserProchain, DELAI_ATTENTE_MS);
     return;
   }
 
-  const item = itemsActifs[indexActuel % itemsActifs.length];
+  const item = diffusables[indexActuel % diffusables.length];
   contenuActuel = { scheduleId: item.scheduleId, mediaId: item.media?.id };
 
   logger.info(`Diffusion : ${item.media?.filename} — durée ${item.dureeS}s`);
@@ -140,7 +146,7 @@ function diffuserProchain() {
   try { display.afficherMedia(item); }
   catch (err) { logger.error(`Erreur affichage : ${err.message}`); }
 
-  indexActuel = (indexActuel + 1) % itemsActifs.length;
+  indexActuel = (indexActuel + 1) % diffusables.length;
   timerItem = setTimeout(diffuserProchain, item.dureeS * 1000);
 }
 

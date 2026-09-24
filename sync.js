@@ -1,5 +1,7 @@
 const https  = require('https');
 const http   = require('http');
+const fs     = require('fs');
+const { pipeline } = require('stream');
 const config = require('./config');
 const cache  = require('./cache');
 const logger = require('./logger');
@@ -45,28 +47,87 @@ async function obtenirSchedule() {
   return data;
 }
 
-async function telechargerMedia(mediaId, filename) {
+// Pas de durée maximale pour un téléchargement (grosses vidéos sur réseau lent) :
+// on abandonne seulement si plus aucune donnée n'arrive pendant ce délai.
+const DELAI_INACTIVITE_MS  = 120_000;
+const INTERVALLE_PROGRES_MS = 60_000;
+
+const enMo = (octets) => `${(octets / 1024 / 1024).toFixed(1)} Mo`;
+
+// Taille totale du fichier : "Content-Range: bytes 1000-4999/5000" en reprise
+// (206), sinon Content-Length (200). null si le serveur ne l'indique pas.
+function tailleTotale(res) {
+  const plage = /\/(\d+)$/.exec(res.headers['content-range'] || '');
+  if (plage) return Number(plage[1]);
+  const longueur = Number(res.headers['content-length']);
+  return Number.isFinite(longueur) && longueur > 0 ? longueur : null;
+}
+
+// Télécharge un média dans "<fichier>.part" puis le renomme une fois complet.
+// Si une tentative précédente a été interrompue, reprend là où elle s'était
+// arrêtée (requête Range). Rejette sur toute coupure — la partie déjà reçue est
+// conservée pour la prochaine tentative.
+function telechargerMedia(mediaId, filename) {
   return new Promise((resolve, reject) => {
     const url = `${config.serverUrl}/api/player/media/${mediaId}`;
     const lib = url.startsWith('https') ? https : http;
-    const chunks = [];
+    const dejaRecu = cache.taillePartielle(filename);
 
-    const req = lib.request(url, {
-      headers: { 'X-Screen-Token': config.screenToken },
-    }, (res) => {
-      if (res.statusCode !== 200) {
+    const headers = { 'X-Screen-Token': config.screenToken };
+    if (dejaRecu > 0) headers.Range = `bytes=${dejaRecu}-`;
+
+    const req = lib.request(url, { headers }, (res) => {
+      if (res.statusCode === 416) {
+        // Partie locale incohérente avec le fichier du serveur : on repartira de zéro.
+        res.resume();
+        cache.supprimerPartiel(filename);
+        return reject(new Error(`Reprise impossible pour ${filename} — nouveau téléchargement au prochain essai`));
+      }
+      if (res.statusCode !== 200 && res.statusCode !== 206) {
+        res.resume();
         return reject(new Error(`HTTP ${res.statusCode} pour média ${mediaId}`));
       }
-      res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        const buffer = Buffer.concat(chunks);
-        cache.sauvegarderMedia(filename, buffer);
-        logger.debug(`Média téléchargé : ${filename} (${(buffer.length / 1024).toFixed(1)} Ko)`);
+
+      // 206 = le serveur reprend à la position demandée ; 200 = fichier complet
+      // depuis le début (on écrase alors l'éventuelle partie existante).
+      const reprise = res.statusCode === 206;
+      const debut = reprise ? dejaRecu : 0;
+      const total = tailleTotale(res);
+      let recu = debut;
+      let dernierProgres = Date.now();
+
+      if (reprise) logger.info(`Reprise du téléchargement ${filename} à ${enMo(debut)}${total ? ` / ${enMo(total)}` : ''}`);
+
+      res.on('data', (morceau) => {
+        recu += morceau.length;
+        if (Date.now() - dernierProgres >= INTERVALLE_PROGRES_MS) {
+          dernierProgres = Date.now();
+          const pourcent = total ? ` (${Math.floor((recu / total) * 100)} %)` : '';
+          logger.info(`Téléchargement ${filename} : ${enMo(recu)}${total ? ` / ${enMo(total)}` : ''}${pourcent}`);
+        }
+      });
+
+      const fichier = fs.createWriteStream(cache.cheminPartiel(filename), { flags: reprise ? 'a' : 'w' });
+      pipeline(res, fichier, (err) => {
+        if (err) {
+          return reject(new Error(`Téléchargement de ${filename} interrompu à ${enMo(recu)} (${err.message}) — reprise au prochain essai`));
+        }
+        if (total && recu !== total) {
+          return reject(new Error(`Téléchargement de ${filename} incomplet (${enMo(recu)} / ${enMo(total)}) — reprise au prochain essai`));
+        }
+        try {
+          cache.finaliserMedia(filename);
+        } catch (e) {
+          return reject(new Error(`Impossible de finaliser ${filename} : ${e.message}`));
+        }
+        logger.info(`Média téléchargé : ${filename} (${enMo(recu)})`);
         resolve();
       });
     });
 
-    req.setTimeout(120_000, () => { req.destroy(); reject(new Error(`Timeout téléchargement ${filename}`)); });
+    req.setTimeout(DELAI_INACTIVITE_MS, () => {
+      req.destroy(new Error(`aucune donnée reçue depuis ${DELAI_INACTIVITE_MS / 1000}s`));
+    });
     req.on('error', reject);
     req.end();
   });
@@ -88,25 +149,62 @@ async function envoyerHeartbeat(status = 'online', contenuActuel = null) {
 // url/text ne sont que du texte/lien en base, rien à télécharger.
 const TYPES_TELECHARGEABLES = new Set(['image', 'video']);
 
-async function synchroniserMedias(items) {
-  const itemsFichiers = items.filter((i) => TYPES_TELECHARGEABLES.has(i.media.type));
+// Un item est diffusable si son média ne nécessite pas de fichier, ou si ce
+// fichier est entièrement présent dans le cache.
+function estDiffusable(item) {
+  return !TYPES_TELECHARGEABLES.has(item.media?.type) || cache.mediaExiste(item.media.filename);
+}
+
+let telechargementsEnCours = false;
+let itemsEnAttente = null;
+
+// Télécharge en arrière-plan les médias manquants, un par un. Ne bloque pas la
+// synchronisation du planning (une grosse vidéo sur réseau lent peut prendre
+// des heures) : les items deviennent diffusables au fil des téléchargements.
+// Un appel pendant qu'un lot est en cours est mémorisé et traité ensuite.
+function lancerTelechargements(items) {
+  itemsEnAttente = items;
+  if (telechargementsEnCours) return;
+
+  telechargementsEnCours = true;
+  (async () => {
+    try {
+      while (itemsEnAttente) {
+        const lot = itemsEnAttente;
+        itemsEnAttente = null;
+        await telechargerLot(lot);
+      }
+    } finally {
+      telechargementsEnCours = false;
+    }
+  })().catch((err) => logger.error(`Erreur téléchargements : ${err.message}`));
+}
+
+async function telechargerLot(items) {
+  const itemsFichiers = items.filter((i) => TYPES_TELECHARGEABLES.has(i.media?.type));
 
   const filenamesActifs = itemsFichiers.map((i) => i.media.filename);
   const nbNettoyes = cache.nettoyerMediasObsoletes(filenamesActifs);
   if (nbNettoyes > 0) logger.info(`Cache nettoyé : ${nbNettoyes} média(s) obsolète(s)`);
 
-  let nbTelecharges = 0;
-  for (const item of itemsFichiers) {
-    const { id, filename } = item.media;
-    if (!cache.mediaExiste(filename)) {
-      logger.info(`Téléchargement : ${filename}`);
+  const manquants = [...new Map(
+    itemsFichiers.filter((i) => !cache.mediaExiste(i.media.filename)).map((i) => [i.media.filename, i.media])
+  ).values()];
+  if (!manquants.length) return;
+
+  logger.info(`${manquants.length} média(s) à télécharger`);
+  let nbEchecs = 0;
+  for (const { id, filename } of manquants) {
+    logger.info(`Téléchargement : ${filename}`);
+    try {
       await telechargerMedia(id, filename);
-      nbTelecharges++;
+    } catch (err) {
+      // On continue avec les autres : celui-ci sera retenté à la prochaine synchronisation.
+      nbEchecs++;
+      logger.warn(err.message);
     }
   }
-
-  if (nbTelecharges > 0) logger.info(`${nbTelecharges} média(s) téléchargé(s)`);
-  return nbTelecharges;
+  if (nbEchecs) logger.warn(`${nbEchecs} média(s) non téléchargé(s) — nouvel essai à la prochaine synchronisation`);
 }
 
-module.exports = { obtenirSchedule, telechargerMedia, envoyerHeartbeat, synchroniserMedias };
+module.exports = { obtenirSchedule, telechargerMedia, envoyerHeartbeat, lancerTelechargements, estDiffusable };

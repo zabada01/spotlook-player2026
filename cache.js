@@ -47,8 +47,31 @@ function mediaExiste(filename) {
   }
 }
 
-function sauvegarderMedia(filename, buffer) {
-  fs.writeFileSync(cheminMedia(filename), buffer);
+// Téléchargement en cours : écrit dans "<fichier>.part", renommé seulement une
+// fois complet — un fichier présent sous son vrai nom est donc toujours entier
+// (même après une coupure réseau ou de courant en plein téléchargement).
+const SUFFIXE_PARTIEL = '.part';
+
+function cheminPartiel(filename) {
+  return cheminMedia(filename) + SUFFIXE_PARTIEL;
+}
+
+// Octets déjà reçus lors d'une tentative précédente (0 si aucune).
+function taillePartielle(filename) {
+  try {
+    return fs.statSync(cheminPartiel(filename)).size;
+  } catch {
+    return 0;
+  }
+}
+
+function supprimerPartiel(filename) {
+  fs.rmSync(cheminPartiel(filename), { force: true });
+}
+
+function finaliserMedia(filename) {
+  fs.rmSync(cheminMedia(filename), { force: true });
+  fs.renameSync(cheminPartiel(filename), cheminMedia(filename));
 }
 
 function listerMediasCaches() {
@@ -64,7 +87,10 @@ function nettoyerMediasObsoletes(filenamesActifs) {
   const caches = listerMediasCaches();
   let nb = 0;
   for (const f of caches) {
-    if (!actifs.has(f)) {
+    // Un ".part" d'un média toujours planifié est conservé : le téléchargement
+    // reprendra là où il s'était arrêté.
+    const nomComplet = f.endsWith(SUFFIXE_PARTIEL) ? f.slice(0, -SUFFIXE_PARTIEL.length) : f;
+    if (!actifs.has(nomComplet)) {
       try { fs.unlinkSync(cheminMedia(f)); nb++; } catch { /* ignore */ }
     }
   }
@@ -74,6 +100,7 @@ function nettoyerMediasObsoletes(filenamesActifs) {
 module.exports = {
   initialiser,
   sauvegarderSchedule, chargerSchedule, scheduleValide,
-  cheminMedia, mediaExiste, sauvegarderMedia,
+  cheminMedia, mediaExiste,
+  cheminPartiel, taillePartielle, supprimerPartiel, finaliserMedia,
   listerMediasCaches, nettoyerMediasObsoletes,
 };
