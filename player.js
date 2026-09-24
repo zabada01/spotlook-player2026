@@ -43,6 +43,9 @@ async function demarrer() {
     logger.info('Mise à jour WS reçue — re-synchronisation…');
     await synchroniser();
     relancerBoucle();
+    // Heartbeat immédiat : le témoin "Contenus" du portail reflète tout de
+    // suite le nouveau planning (téléchargements lancés par synchroniser()).
+    await envoyerHeartbeat();
   }, { redemarrer: redemarrerPC });
 
   setInterval(envoyerHeartbeat, INTERVALLE_HEARTBEAT_MS);
