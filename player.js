@@ -33,7 +33,7 @@ let serveurJoignable = true;
 let timerRetry       = null;
 
 async function demarrer() {
-  logger.info('=== Spotlook Player démarré ===');
+  logger.info(`=== Spotlook Player ${config.playerVersion} démarré ===`);
   cache.initialiser();
   display.initialiser();
 

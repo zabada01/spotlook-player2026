@@ -3,17 +3,28 @@ const os = require('os');
 const { execFileSync } = require('child_process');
 const { version: versionPackage } = require('./package.json');
 
-// Version affichée dans le portail : numéro du package.json + commit git en
-// cours (ex. "1.1.0+ba38d41"). Les players étant mis à jour par git pull, on
-// sait ainsi exactement quel code tourne, même si le numéro n'a pas été changé.
+// Version affichée dans le portail, calculée automatiquement depuis git (les
+// players sont mis à jour par git pull) : majeur.mineur du package.json, et le
+// dernier chiffre augmenté de 1 par commit modifiant le player depuis que ce
+// numéro a été fixé. Ex. package.json 1.1.0 + 2 commits sur client-player -> 1.1.2.
+// Pour une évolution majeure, changer le numéro du package.json (ex. 1.2.0) :
+// le comptage repart de là.
+function git(...args) {
+  return execFileSync('git', args, {
+    cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000, windowsHide: true,
+  }).toString().trim();
+}
+
 function versionPlayer() {
   try {
-    const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
-      cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000, windowsHide: true,
-    }).toString().trim();
-    return commit ? `${versionPackage}+${commit}` : versionPackage;
+    // Dernier commit ayant modifié le numéro de version du package.json
+    const base = git('log', '-1', '--format=%H', '-G"version"', '--', 'package.json');
+    if (!base) return versionPackage;
+    const nbCommits = Number(git('rev-list', '--count', `${base}..HEAD`, '--', '.'));
+    const [majeur, mineur, correctif] = versionPackage.split('.').map(Number);
+    return `${majeur}.${mineur}.${correctif + nbCommits}`;
   } catch {
-    return versionPackage; // pas de git (copie du dossier sans dépôt) : numéro seul
+    return versionPackage; // pas de git (copie du dossier sans dépôt) : numéro du package.json
   }
 }
 
