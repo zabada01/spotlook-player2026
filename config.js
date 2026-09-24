@@ -1,6 +1,23 @@
 require('dotenv').config();
 const os = require('os');
-const { version: playerVersion } = require('./package.json');
+const { execFileSync } = require('child_process');
+const { version: versionPackage } = require('./package.json');
+
+// Version affichée dans le portail : numéro du package.json + commit git en
+// cours (ex. "1.1.0+ba38d41"). Les players étant mis à jour par git pull, on
+// sait ainsi exactement quel code tourne, même si le numéro n'a pas été changé.
+function versionPlayer() {
+  try {
+    const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000, windowsHide: true,
+    }).toString().trim();
+    return commit ? `${versionPackage}+${commit}` : versionPackage;
+  } catch {
+    return versionPackage; // pas de git (copie du dossier sans dépôt) : numéro seul
+  }
+}
+
+const playerVersion = versionPlayer();
 
 function detecterPlateforme() {
   const env = (process.env.PLATFORM || 'auto').toLowerCase();
