@@ -67,7 +67,7 @@ function tailleTotale(res) {
 // Si une tentative précédente a été interrompue, reprend là où elle s'était
 // arrêtée (requête Range). Rejette sur toute coupure — la partie déjà reçue est
 // conservée pour la prochaine tentative.
-function telechargerMedia(mediaId, filename) {
+function telechargerMedia(mediaId, filename, onProgres = () => {}) {
   return new Promise((resolve, reject) => {
     const url = `${config.serverUrl}/api/player/media/${mediaId}`;
     const lib = url.startsWith('https') ? https : http;
@@ -97,9 +97,11 @@ function telechargerMedia(mediaId, filename) {
       let dernierProgres = Date.now();
 
       if (reprise) logger.info(`Reprise du téléchargement ${filename} à ${enMo(debut)}${total ? ` / ${enMo(total)}` : ''}`);
+      onProgres(recu, total);
 
       res.on('data', (morceau) => {
         recu += morceau.length;
+        onProgres(recu, total);
         if (Date.now() - dernierProgres >= INTERVALLE_PROGRES_MS) {
           dernierProgres = Date.now();
           const pourcent = total ? ` (${Math.floor((recu / total) * 100)} %)` : '';
@@ -133,11 +135,11 @@ function telechargerMedia(mediaId, filename) {
   });
 }
 
-async function envoyerHeartbeat(status = 'online', contenuActuel = null) {
+async function envoyerHeartbeat(status = 'online', contenuActuel = null, contenus = undefined) {
   try {
     await requete(`${config.serverUrl}/api/player/heartbeat`, {
       method: 'POST',
-      body: { status, contenuActuel, playerVersion: config.playerVersion },
+      body: { status, contenuActuel, contenus, playerVersion: config.playerVersion },
     });
     logger.debug(`Heartbeat : ${status}`);
   } catch (err) {
@@ -157,6 +159,10 @@ function estDiffusable(item) {
 
 let telechargementsEnCours = false;
 let itemsEnAttente = null;
+
+// État remonté au portail (colonne "Contenus" de la vue Écrans) à chaque heartbeat
+let telechargementActuel = null;   // { filename, recu, total }
+const echecs = new Set();          // filenames dont le dernier essai a échoué
 
 // Télécharge en arrière-plan les médias manquants, un par un. Ne bloque pas la
 // synchronisation du planning (une grosse vidéo sur réseau lent peut prendre
@@ -196,15 +202,42 @@ async function telechargerLot(items) {
   let nbEchecs = 0;
   for (const { id, filename } of manquants) {
     logger.info(`Téléchargement : ${filename}`);
+    telechargementActuel = { filename, recu: 0, total: null };
     try {
-      await telechargerMedia(id, filename);
+      await telechargerMedia(id, filename, (recu, total) => { telechargementActuel = { filename, recu, total }; });
+      echecs.delete(filename);
     } catch (err) {
       // On continue avec les autres : celui-ci sera retenté à la prochaine synchronisation.
       nbEchecs++;
+      echecs.add(filename);
       logger.warn(err.message);
+    } finally {
+      telechargementActuel = null;
     }
   }
   if (nbEchecs) logger.warn(`${nbEchecs} média(s) non téléchargé(s) — nouvel essai à la prochaine synchronisation`);
 }
 
-module.exports = { obtenirSchedule, telechargerMedia, envoyerHeartbeat, lancerTelechargements, estDiffusable };
+// Bilan des médias à télécharger du planning en cours, pour le portail :
+// { total, prets, enCours: { nom, pourcent } | null, echecs: [{ nom }] }.
+function etatContenus(items) {
+  const fichiers = [...new Map(
+    items.filter((i) => TYPES_TELECHARGEABLES.has(i.media?.type)).map((i) => [i.media.filename, i.media])
+  ).values()];
+  const nom = (m) => String(m.nom || m.filename).slice(0, 255);
+  const pret = (m) => cache.mediaExiste(m.filename);
+
+  const actuel = telechargementActuel && fichiers.find((m) => m.filename === telechargementActuel.filename);
+  const { recu, total } = telechargementActuel || {};
+  return {
+    total: fichiers.length,
+    prets: fichiers.filter(pret).length,
+    enCours: actuel ? { nom: nom(actuel), pourcent: total ? Math.min(100, Math.floor((recu / total) * 100)) : null } : null,
+    echecs: fichiers
+      .filter((m) => !pret(m) && echecs.has(m.filename) && m !== actuel)
+      .slice(0, 50)
+      .map((m) => ({ nom: nom(m) })),
+  };
+}
+
+module.exports = { obtenirSchedule, telechargerMedia, envoyerHeartbeat, lancerTelechargements, estDiffusable, etatContenus };

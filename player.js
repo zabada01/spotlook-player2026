@@ -181,7 +181,7 @@ function diffuserProchain() {
 }
 
 async function envoyerHeartbeat() {
-  await sync.envoyerHeartbeat('online', contenuActuel);
+  await sync.envoyerHeartbeat('online', contenuActuel, sync.etatContenus(itemsActifs));
 }
 
 process.on('SIGINT',  arreter);
