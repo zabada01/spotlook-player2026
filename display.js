@@ -46,6 +46,13 @@ const ARGS_CHROMIUM_BASE = [
   '--start-fullscreen',
   '--always-on-top',
   '--hide-scrollbars',
+  // Profil dédié neuf à la première installation : sans ces options, Chrome
+  // affiche ses écrans de premier démarrage (bienvenue, navigateur par défaut,
+  // choix du moteur de recherche imposé en Europe) dans une fenêtre normale,
+  // qui ignore le mode kiosque.
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--disable-search-engine-choice-screen',
 ];
 
 const ARGS_VLC_BASE = [
