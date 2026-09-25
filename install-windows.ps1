@@ -124,13 +124,13 @@ if ($tacheCreee) {
   $reponse = Read-Host "`nLancer le player maintenant ? (o/N)"
   if ($reponse -match '^[oOyY]') {
     Start-ScheduledTask -TaskName $nomTache
-    Write-Host "Player lance - les logs s'ecrivent dans player.log" -ForegroundColor Green
+    Write-Host "Player lance - les logs s'ecrivent dans player.log (plantages : player-crash.log)" -ForegroundColor Green
   }
 } else {
   $reponse = Read-Host "`nLancer le player maintenant sans lancement automatique (test ponctuel) ? (o/N)"
   if ($reponse -match '^[oOyY]') {
     Start-Process -FilePath 'wscript.exe' -ArgumentList "`"$vbsPath`""
-    Write-Host "Player lance - les logs s'ecrivent dans player.log" -ForegroundColor Green
+    Write-Host "Player lance - les logs s'ecrivent dans player.log (plantages : player-crash.log)" -ForegroundColor Green
   }
 }
 
