@@ -1,0 +1,7 @@
+# Fichiers propres à chaque player (jamais versionnés)
+.env
+node_modules/
+package-lock.json
+chrome-profile/
+*.log
+*.log.[0-9]*
